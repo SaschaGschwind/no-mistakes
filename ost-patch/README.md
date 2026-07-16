@@ -104,11 +104,22 @@ Only **Windows** colleagues need this build; the truncation is Windows-only
 (`cmd.exe` argument handling). macOS/Linux users are unaffected and should stay
 on the normal upstream releases.
 
-## One unverified assumption (check in a live session)
+## Verified end-to-end (2026-07-16)
 
-The fix could not be exercised end-to-end unattended (that would mean creating a
-real PR against a real ADO org). Before relying on it broadly, confirm in a live
-session that `az repos pr create` / `az repos pr update` with
-`--description @<file>` actually reads the description from the file against a
-real Azure DevOps organization. Everything else (clamping, temp-file lifecycle,
-no-newline-in-args, cleanup) is covered by unit tests.
+The fix was exercised end-to-end against a real Azure DevOps organization: a
+throwaway PR created through the full no-mistakes gate (running the pinned
+`ost-nm-501` binary) against
+`dev.azure.com/ost-it-ba-dev/Entwicklermeetings/TestReact`. The resulting PR
+description stored the complete multi-line body (all of `## Intent`,
+`## What Changed`, `## Risk Assessment`, `## Testing`, `## Pipeline`) instead of
+collapsing to just `## Intent`, confirming `az repos pr create` with
+`--description @<file>` reads the description from the file. Clamping, temp-file
+lifecycle, no-newline-in-args, and cleanup are additionally covered by unit
+tests.
+
+Gotcha: on Windows, `az repos pr show` re-encodes its output as cp1252 and
+silently drops characters it cannot represent (e.g. umlauts). To inspect a
+stored PR body faithfully, read it through the Azure DevOps REST API
+(`_apis/git/repositories/<repo>/pullRequests/<id>`), which returns UTF-8 — not
+`az ... show`. This only affects reading the body back; the write path
+(`--description @<file>`) preserves UTF-8 correctly.
