@@ -75,28 +75,54 @@ Produces `dist/no-mistakes.exe` (windows/amd64, `CGO_ENABLED=0`). The script
 mirrors the Makefile LDFLAGS (`Version`, `Commit`, `Date`, and the default
 telemetry host/website id) and only overrides `Version` with the pin.
 
+## How the build is distributed
+
+The patched binary is published as an asset on a **GitHub Release** of the OST
+fork (`SaschaGschwind/no-mistakes`), tagged `ost-nm-501` on the `deploy` branch.
+Colleagues do not build it themselves — `deploy-nm.ps1` pulls the asset by URL:
+
+```
+https://github.com/SaschaGschwind/no-mistakes/releases/download/ost-nm-501/no-mistakes.exe
+```
+
+To cut a release (maintainer, after building `dist/no-mistakes.exe`):
+
+```bash
+gh release create ost-nm-501 dist/no-mistakes.exe \
+  --repo SaschaGschwind/no-mistakes --target deploy \
+  --title "ost-nm-501 — #501 ADO PR-description fix" \
+  --notes "Windows-only vendored build; see ost-patch/README.md."
+```
+
 ## How to deploy
 
-On the target Windows machine (PowerShell), after building:
+On the target Windows machine (PowerShell) — **no build required**:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ost-patch/deploy-nm.ps1
 ```
 
-The script resolves the installed path via `where.exe no-mistakes` (it does NOT
-hardcode a location — the shared/per-user install path is unconfirmed), stops
-the daemon, backs up the existing exe (timestamped `.bak-<stamp>` alongside it),
-copies the patched exe over it, restarts the daemon, and prints
-`no-mistakes --version` (expect `ost-nm-501`). It aborts if `where` finds
-nothing and restores the backup if the copy fails.
+The script downloads the `no-mistakes.exe` asset from the `ost-nm-501` release,
+resolves the installed path via `where.exe no-mistakes` (it does NOT hardcode a
+location — the shared/per-user install path is unconfirmed), stops the daemon,
+backs up the existing exe (timestamped `.bak-<stamp>` alongside it), copies the
+downloaded exe over it, restarts the daemon, and prints `no-mistakes --version`
+(expect `ost-nm-501`). It aborts if the download fails or `where` finds nothing,
+and restores the backup if the copy fails. Pass `-PatchedExe <path>` to install
+a locally-built binary instead of downloading (skips the download).
 
 ## Ongoing maintenance
 
-- The fix is a single-file patch. When a new upstream tag ships, rebase this
-  branch (`ost/fix-501-ado-description-windows`) onto it, rebuild with a fresh
-  pin (bump `VERSION` in `build-patched.sh`, e.g. `ost-nm-501-2`), and redeploy.
+- The fix is a single-file patch. When a new upstream tag ships, rebase the
+  `deploy` branch onto it, rebuild with a fresh pin (bump `VERSION` in
+  `build-patched.sh`, e.g. `ost-nm-501-2`), and cut a new release under the
+  matching tag. Point colleagues at `deploy-nm.ps1 -Tag <new-tag>` (or bump the
+  script's default `Tag`).
 - Retire this vendored build once upstream ships the fix in a real release —
-  then colleagues can `no-mistakes update` back onto a normal semver build.
+  then colleagues manually install that upstream SemVer release (which
+  re-arms the auto-updater) and leave the hook removed. Do NOT run
+  `no-mistakes update` on the pinned build — it is a no-op on a dev-version
+  build.
 
 ## Scope
 
