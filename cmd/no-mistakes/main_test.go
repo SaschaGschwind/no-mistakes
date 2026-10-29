@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/kunchenguid/no-mistakes/internal/daemon"
@@ -167,6 +169,41 @@ func TestOnlyDaemonRunPreparesDaemonStdio(t *testing.T) {
 	} {
 		os.Args = append([]string{"no-mistakes"}, args...)
 		_ = run()
+	}
+
+	// A real log-sink run: it reports ready on stdout and drains stdin to EOF.
+	originalStdin, originalStdout := os.Stdin, os.Stdout
+	t.Cleanup(func() {
+		os.Stdin, os.Stdout = originalStdin, originalStdout
+		signal.Reset(os.Interrupt, syscall.SIGTERM)
+	})
+	t.Setenv("NM_HOME", os.Getenv("NM_HOME"))
+	stdin, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdin.Close()
+	if err := stdinWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := os.Create(filepath.Join(t.TempDir(), "stdout"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	os.Stdin, os.Stdout = stdin, stdout
+	os.Args = []string{"no-mistakes", "daemon", "log-sink", "--root", t.TempDir()}
+	code := run()
+	os.Stdin, os.Stdout = originalStdin, originalStdout
+	if code != 0 {
+		t.Fatalf("log-sink run code = %d, want 0", code)
+	}
+	got, err := os.ReadFile(stdout.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(got)) != "ready" {
+		t.Fatalf("log-sink stdout = %q, want its ready line", got)
 	}
 }
 
