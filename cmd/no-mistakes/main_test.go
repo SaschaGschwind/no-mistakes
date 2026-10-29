@@ -96,6 +96,80 @@ func TestRunAttemptsOldExecutableCleanupBeforeEarlyRoutes(t *testing.T) {
 	})
 }
 
+// Issue #1653: `daemon run` must release a console of its own and repoint
+// unusable standard output before the daemon spawns or writes anything, and
+// against the root it was given, since the fallback writes to that root's
+// bootstrap log.
+func TestRunPreparesDaemonStdioBeforeTheDaemonRuns(t *testing.T) {
+	originalArgs := os.Args
+	originalPrepare := prepareDaemonRunStdio
+	originalRunDaemon := runDaemon
+	t.Cleanup(func() {
+		os.Args = originalArgs
+		prepareDaemonRunStdio = originalPrepare
+		runDaemon = originalRunDaemon
+	})
+	root := t.TempDir()
+	t.Setenv("NM_HOME", os.Getenv("NM_HOME"))
+
+	var calls []string
+	prepareDaemonRunStdio = func() error {
+		calls = append(calls, "prepare NM_HOME="+os.Getenv("NM_HOME"))
+		return fmt.Errorf("no usable bootstrap log")
+	}
+	runDaemon = func() error {
+		calls = append(calls, "run")
+		return nil
+	}
+	os.Args = []string{"no-mistakes", "daemon", "run", "--root", root}
+	if code := run(); code != 0 {
+		t.Fatalf("run code = %d, want 0 even when the best-effort preparation fails", code)
+	}
+	want := []string{"prepare NM_HOME=" + root, "run"}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls = %q, want %q", calls, want)
+	}
+}
+
+// The console release and the stdio fallback belong to `daemon run` alone:
+// every other invocation, including the daemon's own log-sink child and a CLI
+// sharing its console with a git hook, terminal, or agent, must keep its
+// console and standard handles untouched.
+func TestOnlyDaemonRunPreparesDaemonStdio(t *testing.T) {
+	originalArgs := os.Args
+	originalPrepare := prepareDaemonRunStdio
+	originalRunDaemon := runDaemon
+	originalBackground := maybeHandleBackgroundCheck
+	t.Cleanup(func() {
+		os.Args = originalArgs
+		prepareDaemonRunStdio = originalPrepare
+		runDaemon = originalRunDaemon
+		maybeHandleBackgroundCheck = originalBackground
+	})
+	prepareDaemonRunStdio = func() error {
+		t.Errorf("%q prepared daemon stdio", os.Args[1:])
+		return nil
+	}
+	runDaemon = func() error {
+		t.Errorf("%q ran the daemon", os.Args[1:])
+		return nil
+	}
+	maybeHandleBackgroundCheck = func(args []string) (bool, error) {
+		return len(args) > 0 && args[0] == "--update-check", nil
+	}
+
+	for _, args := range [][]string{
+		{"--version"},
+		{"daemon", "run", "--help"},
+		{"daemon", "run", "--root"},
+		{"daemon", "log-sink", "--root", ""},
+		{"--update-check", "v1.2.3"},
+	} {
+		os.Args = append([]string{"no-mistakes"}, args...)
+		_ = run()
+	}
+}
+
 func TestCLILogWriterReturnsDiscardWhenLogsDirMissing(t *testing.T) {
 	nmHome := t.TempDir()
 	t.Setenv("NM_HOME", nmHome)
