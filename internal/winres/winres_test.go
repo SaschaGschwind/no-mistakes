@@ -141,16 +141,10 @@ func TestObjectCarriesOnlyTheManifest(t *testing.T) {
 	}
 }
 
-func TestObjectIsDeterministic(t *testing.T) {
-	for _, target := range Targets {
-		if !bytes.Equal(target.Object(), target.Object()) {
-			t.Fatalf("%s object differs between renders", target.GOARCH)
-		}
-	}
-}
-
 // The committed objects are binary blobs that every Windows build links, so a
-// plain `go test` run must catch drift too, not only `make lint`.
+// plain `go test` run must catch drift too, not only `make lint`. They were
+// rendered in another process at another time, so this test (with
+// `genwinres --check`) is also the determinism oracle for the generator.
 func TestCommittedObjectsMatchGenerator(t *testing.T) {
 	for _, target := range Targets {
 		got, err := os.ReadFile(filepath.Join("..", "..", filepath.FromSlash(target.ObjectPath())))
